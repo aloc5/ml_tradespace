@@ -29,14 +29,11 @@ ml_tradespace_repo/
 ├── LICENSE
 ├── requirements.txt # Python dependencies
 ├── src/
-│ └── ml_tradespace.py # Contains the core ml_tradespace function
+│ └── utils_v_final.py # Contains the core ml_tradespace function
 ├── examples/
 │ └── example_usage.ipynb # Jupyter notebook demonstrating usage
 ├── data/
 │ └── README.md # Instructions for obtaining input datasets
-└── tests/
-└── test_ml_tradespace.py # Optional unit tests
-
 
 ---
 
