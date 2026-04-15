@@ -188,19 +188,33 @@ def ml_tradespace(df, feats, targets, train, inputs, models, encoder, scaler):
 
     df_test_results = pd.DataFrame(test_set_preds, index=X_test.index)
     
-    ##########          5. Predict on "inputs" DataFrame          ##########
+    ########## 5. Predict on "inputs" DataFrame ##########
     preds = inputs.copy()
-    
-    # Apply the SAME fitted transformation to the new inputs
-    X_val_scaled = preproc.transform(inputs[feats])
+    X_val_scaled = preproc.transform(inputs[feats].fillna("None"))
 
     for t in targets:
         for model_name, m in trained_models[t].items():
-            col_name = f"{model_name}_{t}_PRED"
-            start_pred = time.time()
-            preds[col_name] = m.predict(X_val_scaled)
-            end_pred = time.time()
-            timing_info[t][model_name]["Prediction Time (s)"] = end_pred - start_pred
+            # Standard point prediction
+            y_val_pred = m.predict(X_val_scaled)
+            preds[f"{model_name}_{t}_PRED"] = y_val_pred
+            
+            # --- UNCERTAINTY LOGIC ---
+            
+            # A: Ensemble Variance (Best for RF and ExtraTrees)
+            if hasattr(m, 'estimators_'):
+                # Calculate standard deviation across all individual trees
+                tree_preds = np.array([tree.predict(X_val_scaled) for tree in m.estimators_])
+                uncertainty = np.std(tree_preds, axis=0)
+                
+            # B: Disagreement/Model-Agnostic fallback
+            # If the model doesn't have internal trees (like HistGradientBoosting in some versions),
+            # we calculate a "Global Confidence" based on the RMSE the model achieved on the test set.
+            else:
+                # We use the RMSE calculated in Section 4 as a constant uncertainty proxy
+                test_rmse = results[t][model_name]["RMSE"]
+                uncertainty = np.full(shape=y_val_pred.shape, fill_value=test_rmse)
+                
+            preds[f"{model_name}_{t}_UNCERTAINTY"] = uncertainty
 
     ##########          6. Extract Feature Importances          ##########
     # Use the preprocessor to get the correct feature names after transformation
@@ -230,3 +244,73 @@ def ml_tradespace(df, feats, targets, train, inputs, models, encoder, scaler):
     )
 
     return results, trained_models, preds, df_importances, timing_info, df_test_results, preproc
+
+
+########################## Validation and Metrics Computation Function ##########################
+def compute_manual_metrics(all_results_training, raw_data_dir=None):
+    """
+    Computes manual performance metrics (MSE, RMSE, MAE, R2) for each dataset, training fraction,
+    target, and model, returning a DataFrame suitable for plotting in Bokeh.
+    Works dynamically for any number of features and targets.
+    """
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    import pandas as pd
+
+    manual_metrics = []
+
+    for (dataset_num, train_frac), result_dict in all_results_training.items():
+        # Unpack result
+        result = result_dict["test"]
+        features = result_dict["features"]
+        val_df = result_dict["val_df"]
+
+        # Unpack ml_tradespace outputs
+        results, trained_models, preds_with_design, df_importances, timing_info, test_results_df, preproc = result
+
+        # Merge predictions with true values based on features
+        merged = pd.merge(
+            preds_with_design, val_df,
+            on=features, suffixes=("_pred", "_true")
+        )
+        print(f"\n📂 Dataset {dataset_num}, {int(train_frac*100)}% training: {len(merged)} rows matched")
+
+        # Extract all targets automatically from `results`
+        detected_targets = list(results.keys())
+
+        for target in detected_targets:
+            target_result = results[target]
+
+            if not isinstance(target_result, dict):
+                print(f"⚠️ Unexpected structure for target '{target}' — skipping")
+                continue
+
+            for model_name in target_result.keys():
+                pred_col = f"{model_name}_{target}_PRED"
+                true_col = f"{target}_true"
+
+                # Check for expected columns
+                if pred_col not in merged.columns or true_col not in merged.columns:
+                    print(f"⚠️ Skipping: Missing prediction/true column for {model_name}, target '{target}'")
+                    continue
+
+                y_pred = merged[pred_col]
+                y_true = merged[true_col]
+
+                mse = mean_squared_error(y_true, y_pred)
+                rmse = mse ** 0.5
+                mae = mean_absolute_error(y_true, y_pred)
+                r2 = r2_score(y_true, y_pred)
+
+                manual_metrics.append({
+                    "Dataset": dataset_num,
+                    "Train %": train_frac,
+                    "Model": model_name,
+                    "Target": target,
+                    "MSE": mse,
+                    "RMSE": rmse,
+                    "MAE": mae,
+                    "R2": r2,
+                    "N Matches": len(merged)
+                })
+
+    return pd.DataFrame(manual_metrics)
