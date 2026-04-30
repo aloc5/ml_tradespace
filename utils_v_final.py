@@ -71,16 +71,17 @@ def ml_tradespace(df, feats, targets, train, inputs, models, encoder, scaler):
     :param train: The proportion of the dataset to use for training (e.g., 0.8).
     :param inputs: DataFrame of feature values for which to generate predictions.
     :param models: Dictionary of ML models, where keys are names and values are model objects.
-    :param encoder: A string specifying the encoder. MUST be 'One-Hot'for this updated function.
-    :param scaler: String specifying the scaler for numerical features ('Min-Max' or 'Standard').
+    :param encoder: A string specifying the encoder. MUST be 'One-Hot' for this updated function.
+    :param scaler: String specifying the scaler for numerical features ('Min-Max' or 'Standard'). 
+                   Any other value will default to no scaling ('passthrough').
     :return: A tuple of (results, trained_models, preds, df_importances, timing_info, df_test_results, preproc).
-            results: dict of model performance metrics per target of testing data.
+            results: dict of model performance metrics (RMSE, R-Squared) per target of testing data.
             trained_models: dict of trained model objects per target.
-            preds: DataFrame of predictions on `inputs`.
+            preds: DataFrame of `inputs` appended with point predictions AND uncertainty estimates for each model/target.
             df_importances: DataFrame of feature importances for each model and target.
-            timing_info: dict of timing information for each model.
-            df_test_results: DataFrame of test results for each model and target.
-            preproc: The fitted preprocessing pipeline.
+            timing_info: dict of training and testing timing information (in seconds) for each model.
+            df_test_results: DataFrame of actual vs. predicted test results for each model and target.
+            preproc: The fitted sklearn ColumnTransformer preprocessing pipeline.
 
     """
     ##########          1. Check Inputs (Integrated from Function 1)          ##########
